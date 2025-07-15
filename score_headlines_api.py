@@ -71,7 +71,7 @@ def encode_and_predict(headlines: List[str]) -> List[str]:
         
         # Convert predictions to labels
         # Try different possible mappings
-        label_mapping = {0: 'Pessimistic', 1: 'Neutral', 2: 'Optimistic'}
+        label_mapping = {'Pessimistic': 'Pessimistic', 'Neutral': 'Neutral', 'Optimistic': 'Optimistic'}
         labels = []
         
         for i, pred in enumerate(predictions):
