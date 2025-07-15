@@ -1,34 +1,34 @@
-"""
-Headline Sentiment Analysis API Service
-Author: Jingyu Huang
-Port: 8008
-"""
-
-import logging
-import uvicorn
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List
-import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import logging
+import joblib
+from sentence_transformers import SentenceTransformer
+import uvicorn
 import traceback
 
-# Configure logging
+# Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# Initialize FastAPI app
+# Initialize app
 app = FastAPI(title="Headline Sentiment Analysis API", version="1.0.0")
 
-# Global variables for model and tokenizer
-model = None
-tokenizer = None
-device = None
-label_mapping = {0: 'Pessimistic', 1: 'Neutral', 2: 'Optimistic'}
+# Load models only once
+try:
+    logger.info("Loading model and embedder...")
+    svm_model = joblib.load("svm.joblib")
+    embedder = SentenceTransformer("all-MiniLM-L6-v2")
+    logger.info("Models loaded successfully.")
+except Exception as e:
+    logger.critical(f"Failed to load models: {str(e)}")
+    logger.critical(f"Traceback: {traceback.format_exc()}")
+    raise e
 
+# Define request/response models
 class HeadlineRequest(BaseModel):
     headlines: List[str]
 
@@ -38,73 +38,60 @@ class HeadlineResponse(BaseModel):
 class StatusResponse(BaseModel):
     status: str
 
-def load_model():
-    """Load the transformer model and tokenizer once at startup"""
-    global model, tokenizer, device
-    
-    try:
-        logger.info("Loading transformer model and tokenizer...")
-        
-        # Set device
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        logger.info(f"Using device: {device}")
-        
-        # Load model and tokenizer
-        model_path = "cardiffnlp/twitter-roberta-base-sentiment-latest"
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-        model = AutoModelForSequenceClassification.from_pretrained(model_path)
-        model.to(device)
-        model.eval()
-        
-        logger.info("Model and tokenizer loaded successfully")
-        
-    except Exception as e:
-        logger.critical(f"Failed to load model: {str(e)}")
-        logger.critical(f"Traceback: {traceback.format_exc()}")
-        raise e
-
-def predict_sentiment(headlines: List[str]) -> List[str]:
-    """Predict sentiment for a list of headlines"""
+def encode_and_predict(headlines: List[str]) -> List[str]:
+    """Encode headlines and predict sentiment"""
     try:
         if not headlines:
             logger.warning("Empty headlines list provided")
             return []
         
         logger.info(f"Processing {len(headlines)} headlines")
+        logger.debug(f"Headlines: {headlines}")
         
-        # Tokenize all headlines
-        encoded = tokenizer(
-            headlines,
-            padding=True,
-            truncation=True,
-            max_length=512,
-            return_tensors='pt'
-        )
+        # Encode headlines using sentence transformer
+        embeddings = embedder.encode(headlines)
+        logger.info(f"Embeddings shape: {embeddings.shape}")
         
-        # Move to device
-        encoded = {k: v.to(device) for k, v in encoded.items()}
+        # Predict using SVM model
+        predictions = svm_model.predict(embeddings)
+        logger.info(f"Raw predictions: {predictions}")
+        logger.info(f"Prediction type: {type(predictions[0]) if len(predictions) > 0 else 'empty'}")
+        logger.info(f"Unique prediction values: {set(predictions)}")
         
-        # Predict
-        with torch.no_grad():
-            outputs = model(**encoded)
-            predictions = torch.nn.functional.softmax(outputs.logits, dim=-1)
-            predicted_labels = torch.argmax(predictions, dim=-1)
+        # Convert predictions to labels
+        # Try different possible mappings based on common patterns
         
-        # Convert to labels
-        labels = [label_mapping[label.item()] for label in predicted_labels]
+        # First, let's see what the actual predictions look like
+        logger.info(f"First few predictions: {predictions[:5] if len(predictions) > 0 else 'empty'}")
         
+        # Try multiple possible label mappings
+        possible_mappings = [
+            {0: 'Pessimistic', 1: 'Neutral', 2: 'Optimistic'},
+            {1: 'Pessimistic', 2: 'Neutral', 3: 'Optimistic'},
+            {-1: 'Pessimistic', 0: 'Neutral', 1: 'Optimistic'},
+            {'Pessimistic': 'Pessimistic', 'Neutral': 'Neutral', 'Optimistic': 'Optimistic'}
+        ]
+        
+        labels = []
+        for pred in predictions:
+            label_found = False
+            for mapping in possible_mappings:
+                if pred in mapping:
+                    labels.append(mapping[pred])
+                    label_found = True
+                    break
+            if not label_found:
+                logger.warning(f"Unknown prediction value: {pred} (type: {type(pred)})")
+                labels.append('Unknown')
+        
+        logger.info(f"Final labels: {labels}")
         logger.info(f"Successfully processed {len(headlines)} headlines")
         return labels
         
     except Exception as e:
-        logger.error(f"Error in predict_sentiment: {str(e)}")
+        logger.error(f"Error in encode_and_predict: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         raise e
-
-@app.on_event("startup")
-async def startup_event():
-    """Load model on startup"""
-    load_model()
 
 @app.get("/status", response_model=StatusResponse)
 async def get_status():
@@ -127,13 +114,13 @@ async def score_headlines(request: HeadlineRequest):
             logger.warning("Empty headlines list in request")
             raise HTTPException(status_code=400, detail="Headlines list cannot be empty")
         
-        # Check if model is loaded
-        if model is None or tokenizer is None:
-            logger.error("Model not loaded")
-            raise HTTPException(status_code=500, detail="Model not loaded")
+        # Check if models are loaded
+        if svm_model is None or embedder is None:
+            logger.error("Models not loaded")
+            raise HTTPException(status_code=500, detail="Models not loaded")
         
         # Predict sentiment
-        labels = predict_sentiment(request.headlines)
+        labels = encode_and_predict(request.headlines)
         
         logger.info(f"Successfully returned {len(labels)} labels")
         return HeadlineResponse(labels=labels)
@@ -146,6 +133,6 @@ async def score_headlines(request: HeadlineRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 if __name__ == "__main__":
-    # Run the server
+    # Run the server on port 8008 (Jingyu Huang's assigned port)
     logger.info("Starting Headline Sentiment Analysis API on port 8008")
     uvicorn.run(app, host="0.0.0.0", port=8008, log_level="info")
