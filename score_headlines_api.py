@@ -9,7 +9,7 @@ import traceback
 
 # Set up logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -54,6 +54,9 @@ def encode_and_predict(headlines: List[str]) -> List[str]:
         
         # Predict using SVM model
         predictions = svm_model.predict(embeddings)
+        print(f"DEBUG: Raw predictions: {predictions}")  # Force print
+        print(f"DEBUG: Prediction type: {type(predictions[0]) if len(predictions) > 0 else 'empty'}")
+        print(f"DEBUG: Unique prediction values: {set(predictions)}")
         logger.info(f"Raw predictions: {predictions}")
         logger.info(f"Prediction type: {type(predictions[0]) if len(predictions) > 0 else 'empty'}")
         logger.info(f"Unique prediction values: {set(predictions)}")
