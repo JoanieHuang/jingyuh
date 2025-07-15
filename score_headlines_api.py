@@ -46,7 +46,6 @@ def encode_and_predict(headlines: List[str]) -> List[str]:
             return []
         
         logger.info(f"Processing {len(headlines)} headlines")
-        logger.debug(f"Headlines: {headlines}")
         
         # Encode headlines using sentence transformer
         embeddings = embedder.encode(headlines)
@@ -54,39 +53,37 @@ def encode_and_predict(headlines: List[str]) -> List[str]:
         
         # Predict using SVM model
         predictions = svm_model.predict(embeddings)
-        print(f"DEBUG: Raw predictions: {predictions}")  # Force print
-        print(f"DEBUG: Prediction type: {type(predictions[0]) if len(predictions) > 0 else 'empty'}")
-        print(f"DEBUG: Unique prediction values: {set(predictions)}")
+        
+        # FORCE DEBUG OUTPUT
+        print("=" * 60)
+        print(f"DEBUG - RAW PREDICTIONS: {predictions}")
+        print(f"DEBUG - PREDICTION TYPE: {type(predictions)}")
+        print(f"DEBUG - FIRST ELEMENT: {predictions[0] if len(predictions) > 0 else 'empty'}")
+        print(f"DEBUG - FIRST ELEMENT TYPE: {type(predictions[0]) if len(predictions) > 0 else 'empty'}")
+        print(f"DEBUG - UNIQUE VALUES: {set(predictions)}")
+        print(f"DEBUG - PREDICTIONS LIST: {list(predictions)}")
+        print("=" * 60)
+        
+        # Log the same info
         logger.info(f"Raw predictions: {predictions}")
         logger.info(f"Prediction type: {type(predictions[0]) if len(predictions) > 0 else 'empty'}")
         logger.info(f"Unique prediction values: {set(predictions)}")
         
         # Convert predictions to labels
-        # Try different possible mappings based on common patterns
-        
-        # First, let's see what the actual predictions look like
-        logger.info(f"First few predictions: {predictions[:5] if len(predictions) > 0 else 'empty'}")
-        
-        # Try multiple possible label mappings
-        possible_mappings = [
-            {0: 'Pessimistic', 1: 'Neutral', 2: 'Optimistic'},
-            {1: 'Pessimistic', 2: 'Neutral', 3: 'Optimistic'},
-            {-1: 'Pessimistic', 0: 'Neutral', 1: 'Optimistic'},
-            {'Pessimistic': 'Pessimistic', 'Neutral': 'Neutral', 'Optimistic': 'Optimistic'}
-        ]
-        
+        # Try different possible mappings
+        label_mapping = {0: 'Pessimistic', 1: 'Neutral', 2: 'Optimistic'}
         labels = []
-        for pred in predictions:
-            label_found = False
-            for mapping in possible_mappings:
-                if pred in mapping:
-                    labels.append(mapping[pred])
-                    label_found = True
-                    break
-            if not label_found:
-                logger.warning(f"Unknown prediction value: {pred} (type: {type(pred)})")
-                labels.append('Unknown')
         
+        for i, pred in enumerate(predictions):
+            print(f"Processing prediction {i}: {pred} (type: {type(pred)})")
+            if pred in label_mapping:
+                labels.append(label_mapping[pred])
+                print(f"  -> Mapped to: {label_mapping[pred]}")
+            else:
+                labels.append('Unknown')
+                print(f"  -> Mapped to: Unknown (pred {pred} not in mapping)")
+        
+        print(f"Final labels: {labels}")
         logger.info(f"Final labels: {labels}")
         logger.info(f"Successfully processed {len(headlines)} headlines")
         return labels
@@ -94,6 +91,7 @@ def encode_and_predict(headlines: List[str]) -> List[str]:
     except Exception as e:
         logger.error(f"Error in encode_and_predict: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
+        print(f"ERROR in encode_and_predict: {str(e)}")
         raise e
 
 @app.get("/status", response_model=StatusResponse)
