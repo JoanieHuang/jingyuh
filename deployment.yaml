@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minimal-server-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minimal-server
+  template:
+    metadata:
+      labels:
+        app: minimal-server
+    spec:
+      containers:
+      - name: minimal-server
+        image: jingyuhuang2000/minimal-server:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
